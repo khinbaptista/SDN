@@ -2,7 +2,8 @@
 
 from mininet.topo import Topo
 from mininet.net import Mininet
-from mininet.cli import CLI
+from mininet.util import dumpNodeConnections
+from mininet.log import setLogLevel
 
 class CustomTopology ( Topo ):
 	def build(self, n = 2):
@@ -10,7 +11,7 @@ class CustomTopology ( Topo ):
 
 		for h in range(n):
 			host = self.addHost("h%s" % (h + 1))
-			self.addLink(h, s1)
+			self.addLink(host, s1)
 
 def test():
 	topo	= CustomTopology(n = 4)
