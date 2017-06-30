@@ -8,11 +8,6 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 
-# Topology discovery
-#from ryu.app.wsgi import ControllerBase
-from ryu.topology import event, switches
-from ryu.topology.api import get_switch, get_link, get_host
-
 class ExampleSwitch(app_manager.RyuApp):
 	OFP_VERSIONS = [ ofproto_v1_3.OFP_VERSION ]
 
@@ -103,24 +98,3 @@ class ExampleSwitch(app_manager.RyuApp):
 		)
 
 		datapath.send_msg(out)
-
-### https://github.com/Ehsan70/RyuApps/blob/master/TopoDiscoveryInRyu.md
-	# Topology discovery
-	@set_ev_cls(event.EventSwitchEnter)
-	def get_topology_data(self, ev):
-		print(ev.switch)
-		return
-		switch_list = get_switch(self, None)
-		switches = [ switch.dp.id for switch in switch_list ]
-		print("switches: ", switches)
-
-		hosts = get_host(self, None)
-		print("hosts: ", hosts)
-
-		links_list = get_link(self, switches[0])
-		links = [
-			( link.src.dpid, link.dst.dpid, {'port':link.src.port_no} )
-			for link in links_list
-		]
-
-		print("links: ", links)
