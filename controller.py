@@ -81,7 +81,7 @@ class ExampleSwitch(app_manager.RyuApp):
 		# Get the received port number from the packet_in message
 		in_port = msg.match['in_port']
 
-		self.logger.info("Packet in %s %s %s %s", dpid, src, dst, in_port)
+		#self.logger.info("Packet in %s %s %s %s", dpid, src, dst, in_port)
 
 		# Learn MAC address to avoid flooding next time
 		self.mac_to_port[dpid][src] = in_port
@@ -134,6 +134,8 @@ class ExampleSwitch(app_manager.RyuApp):
 		for switch in self.raw_switches:
 			print("\t\t" + str(switch))
 
+		links = [(link.src.dpid, link.dst.dpid, {'port':link.src.port_no}) for link in self.raw_links]
+
 		self.net = nx.DiGraph()
 		self.net.add_nodes_from(self.raw_switches)
-		self.net.add_edges_from(self.raw_links)
+		self.net.add_edges_from(links)
