@@ -9,9 +9,11 @@ from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 
 # Topology discovery
-#from ryu.app.wsgi import ControllerBase
-from ryu.topology import event, switches
-from ryu.topology.api import get_switch, get_link, get_host
+from ryu.topology import event
+from ryu.topology.api import get_switch, get_link
+import copy
+
+import networkx as nx
 
 class ExampleSwitch(app_manager.RyuApp):
 	OFP_VERSIONS = [ ofproto_v1_3.OFP_VERSION ]
@@ -21,6 +23,11 @@ class ExampleSwitch(app_manager.RyuApp):
 
 		# Initialize MAC address table
 		self.mac_to_port = {}
+
+		# Topology
+		self.raw_switches = []
+		self.raw_links = []
+		self.net = nx.DiGraph()
 
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 	def switch_features_handler(self, ev):
@@ -80,8 +87,15 @@ class ExampleSwitch(app_manager.RyuApp):
 		self.mac_to_port[dpid][src] = in_port
 
 		# If the destination MAC address is not known, FLOOD
-		if dst in self.mac_to_port[dpid]:
-			out_port = self.mac_to_port[dpid][dst]
+		if src not in self.net:
+			self.net.add_node(src)			# add node to the graph
+			self.net.add_edge(src, dpid)	# add a link from the node to the switch
+			self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
+
+		if dst in self.net:
+			path = nx.shortest_path(self.net, src, dst)	# find shortest path
+			next = path[path.index(dpid) + 1]			# next hop in path
+			out_port = self.net[dpid][next]['port']		# get output port
 		else:
 			out_port = ofproto.OFPP_FLOOD
 
@@ -105,22 +119,21 @@ class ExampleSwitch(app_manager.RyuApp):
 		datapath.send_msg(out)
 
 ### https://github.com/Ehsan70/RyuApps/blob/master/TopoDiscoveryInRyu.md
+### https://sdn-lab.com/2014/12/25/shortest-path-forwarding-with-openflow-on-ryu/
 	# Topology discovery
 	@set_ev_cls(event.EventSwitchEnter)
-	def get_topology_data(self, ev):
-		print(ev.switch)
-		return
-		switch_list = get_switch(self, None)
-		switches = [ switch.dp.id for switch in switch_list ]
-		print("switches: ", switches)
+	def handler_switch_enter(self, ev):
+		self.raw_switches = copy.copy(get_switch(self, None))
+		self.raw_links = copy.copy(get_link(self, None))
 
-		hosts = get_host(self, None)
-		print("hosts: ", hosts)
+		print("\tCurrent links:")
+		for link in self.raw_links:
+			print("\t\t" + str(link))
 
-		links_list = get_link(self, switches[0])
-		links = [
-			( link.src.dpid, link.dst.dpid, {'port':link.src.port_no} )
-			for link in links_list
-		]
+		print("\tCurrent switches:")
+		for switch in self.raw_switches:
+			print("\t\t" + str(switch))
 
-		print("links: ", links)
+		self.net = nx.DiGraph()
+		self.net.add_nodes_from(self.raw_switches)
+		self.net.add_edges_from(self.raw_links)
