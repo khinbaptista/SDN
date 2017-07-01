@@ -42,7 +42,7 @@ class SDNController(app_manager.RyuApp):
 		self.initLoops()
 
 	def initLoops(self):
-		self.send_packet()
+		self.send_packet_if_token()
 		self.createToken()
 		threading.Timer(1, self.initLoops).start()
 
@@ -81,85 +81,80 @@ class SDNController(app_manager.RyuApp):
 	@set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
 	def handler_packet_in(self, ev):
 		msg = ev.msg
-		self.queue.append(msg)
+		pkt = packet.Packet(msg.data)
+		eth_pkt = pkt.get_protocol(ethernet.ethernet)
 
-	def send_packet(self):
+		ethtype = eth_pkt.ethertype
+		if ethtype == 0x88CC or ethtype == 0x806:	# Link-layer discovery protocol (LLDP)
+			self.send_message(msg, False)
+		else:
+			self.queue.append(msg)
+
+	def send_packet_if_token(self):
 		if self.queue:
 			first_in = self.queue.pop(0)
-
-			datapath = first_in.datapath
-			ofproto = datapath.ofproto
-			parser = datapath.ofproto_parser
-
-			# get Datapath ID to identify OpenFlow switches.
-			dpid = datapath.id
-			self.mac_to_port.setdefault(dpid, {})
-
-			# analyse the received packets using the packet library.
 			pkt = packet.Packet(first_in.data)
 
 			if self.tokenBucket(sys.getsizeof(pkt)):
-				eth_pkt = pkt.get_protocol(ethernet.ethernet)
-				dst = eth_pkt.dst
-				src = eth_pkt.src
+				self.send_message(first_in)
 
-				# get the received port number from packet_in message.
-				in_port = first_in.match['in_port']
+	def send_message(self, msg, debug = True):
+		datapath = msg.datapath
+		ofproto = datapath.ofproto
+		parser = datapath.ofproto_parser
 
-				#self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+		# get Datapath ID to identify OpenFlow switches.
+		dpid = datapath.id
+		self.mac_to_port.setdefault(dpid, {})
 
-				# learn a mac address to avoid FLOOD next time.
-				self.mac_to_port[dpid][src] = in_port
+		# analyse the received packets using the packet library.
+		pkt = packet.Packet(msg.data)
 
-				# If the destination MAC address is not known, FLOOD
-				if src not in self.net:
-					self.net.add_node(src)			# add node to the graph
-					self.net.add_edge(src, dpid)	# add a link from the node to the switch
-					self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
+		eth_pkt = pkt.get_protocol(ethernet.ethernet)
+		dst = eth_pkt.dst
+		src = eth_pkt.src
 
-				if dst in self.net:
-#					all_paths = sorted(list(nx.all_simple_paths(self.net, src, dst)), key = len)
-#					if len(all_paths) == 1:
-#						path = all_paths[0]
-#					elif len(all_paths) == 2:
-#						if randint(0, 100) <= 70:
-#							path = all_paths[0]
-#						else:
-#							path = all_paths[1]
-#					elif len(all_paths) >= 3:
-#						chance = randint(0, 100)
-#						if chance <= 50:
-#							path = all_paths[0]
-#						elif chance <= 80:
-#							path = all_paths[1]
-#						else:
-#							path = all_paths[2]
-#					else:
-#						path = nx.shortest_path(self.net, src, dst)
-					path = nx.shortest_path(self.net, src, dst)
-					print("\tPath: " + str(path))
-					next = path[path.index(dpid) + 1]			# next hop in path
-					out_port = self.net[dpid][next]['port']		# get output port
-				else:
-					out_port = ofproto.OFPP_FLOOD
+		if debug: print("ETHERTYPE> " + str(eth_pkt.ethertype))
 
-				# construct action list.
-				actions = [parser.OFPActionOutput(out_port)]
+		# get the received port number from packet_in message.
+		in_port = msg.match['in_port']
 
-				# install a flow to avoid packet_in next time.
-				if out_port != ofproto.OFPP_FLOOD:
-					match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-					self.add_flow(datapath, 1, match, actions)
+		if debug: self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
-				# Construct a packet_out message and send it
-				out = parser.OFPPacketOut(
-					datapath = datapath,
-					buffer_id = ofproto.OFP_NO_BUFFER,
-					in_port = in_port,
-					actions = actions,
-					data = first_in.data
-				)
-				datapath.send_msg(out)
+		# learn a mac address to avoid FLOOD next time.
+		self.mac_to_port[dpid][src] = in_port
+
+		# If the destination MAC address is not known, FLOOD
+		if src not in self.net:
+			self.net.add_node(src)			# add node to the graph
+			self.net.add_edge(src, dpid)	# add a link from the node to the switch
+			self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
+
+		if dst in self.net:
+			path = nx.shortest_path(self.net, src, dst)
+			if debug: print("\tPath: " + str(path))
+			next = path[path.index(dpid) + 1]			# next hop in path
+			out_port = self.net[dpid][next]['port']		# get output port
+		else:
+			out_port = ofproto.OFPP_FLOOD
+
+		# construct action list.
+		actions = [parser.OFPActionOutput(out_port)]
+
+		# install a flow to avoid packet_in next time.
+		if out_port != ofproto.OFPP_FLOOD:
+			match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+			self.add_flow(datapath, 1, match, actions)
+
+		# Construct a packet_out message and send it
+		out = parser.OFPPacketOut(
+			datapath = datapath,
+			buffer_id = ofproto.OFP_NO_BUFFER,
+			in_port = in_port,
+			actions = actions,
+			data = msg.data
+		)
+		datapath.send_msg(out)
 
 	def tokenBucket(self, tokens):
 		consumed = False

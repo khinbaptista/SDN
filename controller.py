@@ -70,6 +70,9 @@ class ExampleSwitch(app_manager.RyuApp):
 		ofproto = datapath.ofproto
 		parser = datapath.ofproto_parser
 
+		#if msg.msg_type != 0xA:
+		#print("\nMESSAGE> " + str(dst))
+
 		# Get datapath ID to identify OpenFlow switches
 		dpid = datapath.id
 		self.mac_to_port.setdefault(dpid, {})
@@ -79,6 +82,8 @@ class ExampleSwitch(app_manager.RyuApp):
 		eth_pkt = pkt.get_protocol(ethernet.ethernet)
 		src = eth_pkt.src
 		dst = eth_pkt.dst
+
+		print("\nMESSAGE DST> " + str(dst))
 
 		# Get the received port number from the packet_in message
 		in_port = msg.match['in_port']
