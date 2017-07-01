@@ -85,8 +85,11 @@ class SDNController(app_manager.RyuApp):
 		eth_pkt = pkt.get_protocol(ethernet.ethernet)
 
 		ethtype = eth_pkt.ethertype
-		if ethtype == 0x88CC or ethtype == 0x806:	# Link-layer discovery protocol (LLDP)
+		if ethtype == 0x88CC or ethtype == 0x806:	# Link-layer discovery protocol (LLDP) and ARP
 			self.send_message(msg, False)
+		elif ethtype == 0x800:
+			print("IPv4")
+			self.queue.append(msg)
 		else:
 			self.queue.append(msg)
 
@@ -187,7 +190,10 @@ class SDNController(app_manager.RyuApp):
 		for switch in self.raw_switches:
 			print("\t\t" + str(switch))
 
-		links = [(link.src.dpid, link.dst.dpid, {'port':link.src.port_no}) for link in self.raw_links]
+		links = [
+			(link.src.dpid, link.dst.dpid, {'port':link.src.port_no})
+			for link in self.raw_links
+		]
 
 		self.net = nx.DiGraph()
 		self.net.add_nodes_from(self.raw_switches)
