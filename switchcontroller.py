@@ -20,20 +20,21 @@ from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
-import sched, time
+import threading
 
 
-class Switch(app_manager.RyuApp):
+class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
-        super(Switch, self).__init__(*args, **kwargs)
+        super(SimpleSwitch13, self).__init__(*args, **kwargs)
         # initialize mac address table.
         self.mac_to_port = {}
         self.queue = list()
         self.tokens = list()
         self.i = 0
-        s = sched.scheduler(time.time, time.sleep)
+        threading.Timer(1, send_packet).start()
+        threading.Timer(1, createToken).start()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -61,7 +62,13 @@ class Switch(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
         msg = ev.msg
-        datapath = msg.datapath
+        self.queue.append(msg)
+
+    def send_packet(self):
+        if self.queue is not None:
+            first_in = self.queue.pop(0)
+
+        datapath = first_in.datapath
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
@@ -71,10 +78,6 @@ class Switch(app_manager.RyuApp):
 
         # analyse the received packets using the packet library.
         pkt = packet.Packet(msg.data)
-        self.queue.append(pkt)
-
-        if self.queue is not None:
-            first_in = self.queue.pop(0)
 
         eth_pkt = first_in.get_protocol(ethernet.ethernet)
         dst = eth_pkt.dst
@@ -109,9 +112,11 @@ class Switch(app_manager.RyuApp):
                                   in_port=in_port, actions=actions,
                                   data=msg.data)
         datapath.send_msg(out)
+        threading.Timer(1, send_packet).start()
 
     def tokenBucket(self):
 
     def createToken(self):
         self.tokens.append(i)
         self.i = self.i + 1
+        threading.Timer(1, createToken).start()
