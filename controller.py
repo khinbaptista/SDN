@@ -8,6 +8,8 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 
+from random import randint
+
 # Topology discovery
 from ryu.topology import event
 from ryu.topology.api import get_switch, get_link
@@ -93,7 +95,26 @@ class ExampleSwitch(app_manager.RyuApp):
 			self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
 
 		if dst in self.net:
-			path = nx.shortest_path(self.net, src, dst)	# find shortest path
+			all_paths = sorted(list(nx.all_simple_paths(self.net, src, dst)), key = len)
+			if len(all_paths) == 1:
+				path = all_paths[0]
+			elif len(all_paths) == 2:
+				if randint(0, 100) <= 70:
+					path = all_paths[0]
+				else:
+					path = all_paths[1]
+			elif len(all_paths) >= 3:
+				chance = randint(0, 100)
+				if chance <= 50:
+					path = all_paths[0]
+				elif chance <= 80:
+					path = all_paths[1]
+				else:
+					path = all_paths[2]
+			else:
+				path = nx.shortest_path(self.net, src, dst)	# find shortest path
+
+			print("\tPath: " + str(path))
 			next = path[path.index(dpid) + 1]			# next hop in path
 			out_port = self.net[dpid][next]['port']		# get output port
 		else:
@@ -139,3 +160,7 @@ class ExampleSwitch(app_manager.RyuApp):
 		self.net = nx.DiGraph()
 		self.net.add_nodes_from(self.raw_switches)
 		self.net.add_edges_from(links)
+
+	@set_ev_cls(event.EventHostAdd)
+	def handler_host_add(self, ev):
+		print("\tNew host: " + str(ev.host))
