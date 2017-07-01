@@ -36,15 +36,15 @@ class SDNController(app_manager.RyuApp):
 
 		# Token bucket
 		self.queue = list()
-        self.i = 0
-        self.maxTokens = 640
-        self.tokenSize = 64
-        self.initLoops()
+		self.i = 0
+		self.maxTokens = 640
+		self.tokenSize = 64
+		self.initLoops()
 
 	def initLoops(self):
-        self.send_packet()
-        self.createToken()
-        threading.Timer(1, self.initLoops).start()
+		self.send_packet()
+		self.createToken()
+		threading.Timer(1, self.initLoops).start()
 
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 	def switch_features_handler(self, ev):
@@ -84,97 +84,97 @@ class SDNController(app_manager.RyuApp):
 		self.queue.append(msg)
 
 	def send_packet(self):
-        if self.queue:
-            first_in = self.queue.pop(0)
+		if self.queue:
+			first_in = self.queue.pop(0)
 
-            datapath = first_in.datapath
-            ofproto = datapath.ofproto
-            parser = datapath.ofproto_parser
+			datapath = first_in.datapath
+			ofproto = datapath.ofproto
+			parser = datapath.ofproto_parser
 
-            # get Datapath ID to identify OpenFlow switches.
-            dpid = datapath.id
-            self.mac_to_port.setdefault(dpid, {})
+			# get Datapath ID to identify OpenFlow switches.
+			dpid = datapath.id
+			self.mac_to_port.setdefault(dpid, {})
 
-            # analyse the received packets using the packet library.
-            pkt = packet.Packet(first_in.data)
+			# analyse the received packets using the packet library.
+			pkt = packet.Packet(first_in.data)
 
-            if self.tokenBucket(sys.getsizeof(pkt)):
-                eth_pkt = pkt.get_protocol(ethernet.ethernet)
-                dst = eth_pkt.dst
-                src = eth_pkt.src
+			if self.tokenBucket(sys.getsizeof(pkt)):
+				eth_pkt = pkt.get_protocol(ethernet.ethernet)
+				dst = eth_pkt.dst
+				src = eth_pkt.src
 
-                # get the received port number from packet_in message.
-                in_port = first_in.match['in_port']
+				# get the received port number from packet_in message.
+				in_port = first_in.match['in_port']
 
-                self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+				#self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
-                # learn a mac address to avoid FLOOD next time.
-                self.mac_to_port[dpid][src] = in_port
+				# learn a mac address to avoid FLOOD next time.
+				self.mac_to_port[dpid][src] = in_port
 
-                # If the destination MAC address is not known, FLOOD
+				# If the destination MAC address is not known, FLOOD
 				if src not in self.net:
 					self.net.add_node(src)			# add node to the graph
 					self.net.add_edge(src, dpid)	# add a link from the node to the switch
 					self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
 
 				if dst in self.net:
-					all_paths = sorted(list(nx.all_simple_paths(self.net, src, dst)), key = len)
-					if len(all_paths) == 1:
-						path = all_paths[0]
-					elif len(all_paths) == 2:
-						if randint(0, 100) <= 70:
-							path = all_paths[0]
-						else:
-							path = all_paths[1]
-					elif len(all_paths) >= 3:
-						chance = randint(0, 100)
-						if chance <= 50:
-							path = all_paths[0]
-						elif chance <= 80:
-							path = all_paths[1]
-						else:
-							path = all_paths[2]
-					else:
-						path = nx.shortest_path(self.net, src, dst)
-
+#					all_paths = sorted(list(nx.all_simple_paths(self.net, src, dst)), key = len)
+#					if len(all_paths) == 1:
+#						path = all_paths[0]
+#					elif len(all_paths) == 2:
+#						if randint(0, 100) <= 70:
+#							path = all_paths[0]
+#						else:
+#							path = all_paths[1]
+#					elif len(all_paths) >= 3:
+#						chance = randint(0, 100)
+#						if chance <= 50:
+#							path = all_paths[0]
+#						elif chance <= 80:
+#							path = all_paths[1]
+#						else:
+#							path = all_paths[2]
+#					else:
+#						path = nx.shortest_path(self.net, src, dst)
+					path = nx.shortest_path(self.net, src, dst)
 					print("\tPath: " + str(path))
 					next = path[path.index(dpid) + 1]			# next hop in path
 					out_port = self.net[dpid][next]['port']		# get output port
 				else:
 					out_port = ofproto.OFPP_FLOOD
 
-                # construct action list.
-                actions = [parser.OFPActionOutput(out_port)]
+				# construct action list.
+				actions = [parser.OFPActionOutput(out_port)]
 
-                # install a flow to avoid packet_in next time.
-                if out_port != ofproto.OFPP_FLOOD:
-                    match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
-                    self.add_flow(datapath, 1, match, actions)
+				# install a flow to avoid packet_in next time.
+				if out_port != ofproto.OFPP_FLOOD:
+					match = parser.OFPMatch(in_port=in_port, eth_dst=dst)
+					self.add_flow(datapath, 1, match, actions)
 
-                # Construct a packet_out message and send it
+				# Construct a packet_out message and send it
 				out = parser.OFPPacketOut(
 					datapath = datapath,
 					buffer_id = ofproto.OFP_NO_BUFFER,
 					in_port = in_port,
 					actions = actions,
-					data = msg.data
+					data = first_in.data
 				)
 				datapath.send_msg(out)
 
-    def tokenBucket(self, tokens):
-        consumed = False
-        if  self.i >= tokens:
-            self.i = self.i - tokens
-            consumed = True
-            self.logger.info("Consumed %s tokens, %s tokens available", tokens, self.i)
-        return consumed
+	def tokenBucket(self, tokens):
+		consumed = False
+		if  self.i >= tokens:
+			self.i = self.i - tokens
+			consumed = True
+			#self.logger.info("Consumed %s tokens, %s tokens available", tokens, self.i)
+		return consumed
 
-    def createToken(self):
-        if self.i < self.maxTokens:
-            self.i = self.i + self.tokenSize
-            self.logger.info("Generated %s tokens, %s tokens available", self.tokenSize, self.i)
-        else:
-            self.logger.info("Maximum token values")
+	def createToken(self):
+		if self.i < self.maxTokens:
+			self.i = self.i + self.tokenSize
+			#self.logger.info("Generated %s tokens, %s tokens available", self.tokenSize, self.i)
+		#else:
+			#self.logger.info("Maximum token values")
 
 ### https://github.com/Ehsan70/RyuApps/blob/master/TopoDiscoveryInRyu.md
 ### https://sdn-lab.com/2014/12/25/shortest-path-forwarding-with-openflow-on-ryu/
