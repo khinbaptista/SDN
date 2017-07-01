@@ -1,5 +1,10 @@
 #!/usr/bin/python
 
+# SDN controller developed for the Protocolos de Comunicacao
+# discipline in 2017/1
+# Khin Baptista and Marcelo Vasques
+
+# Ryu libraries
 from ryu.base import app_manager
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
@@ -17,11 +22,11 @@ import networkx as nx
 import copy
 
 # Token bucket
-import threading
-import sys
+import threading # Used to schedule the main loop
+import sys       # Used to get the size of each packet
 
 class SDNController(app_manager.RyuApp):
-	OFP_VERSIONS = [ ofproto_v1_3.OFP_VERSION ]
+	OFP_VERSIONS = [ ofproto_v1_3.OFP_VERSION ] # OpenFlow version 1.3
 
 	def __init__(self, *args, **kwargs):
 		super(SDNController, self).__init__(*args, **kwargs)
@@ -35,21 +40,23 @@ class SDNController(app_manager.RyuApp):
 		self.net = nx.DiGraph()
 
 		# Token bucket
-		self.queue = list()
-		self.i = 0
-		self.maxTokens = 640
-		self.tokenSize = 64
-		self.initLoops()
+		self.queue = list()		# Main FIFO for the packets that arrive
+		self.i = 0				# Token accumulator
+		self.maxTokens = 640	# Maximum value of tokens to be generated
+		self.tokenSize = 64		# Value used for the generation of tokens in each step
+		self.initLoops()		# Initialize main loop
 
+	# Main loop
 	def initLoops(self):
-		self.send_packet_if_token()
-		self.createToken()
-		threading.Timer(1, self.initLoops).start()
+		self.send_packet_if_token() # Send packets from FIFO and use tokens
+		self.createToken()			# Generate new tokens every times the loop runs
+		threading.Timer(1, self.initLoops).start() # Schedule a new loop run
 
+	# Register the features of a switch with this function
 	@set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 	def switch_features_handler(self, ev):
-		datapath = ev.msg.datapath
-		ofproto = datapath.ofproto
+		datapath = ev.msg.datapath       # Path to be used
+		ofproto = datapath.ofproto		 # OpenFlow protocol
 		parser = datapath.ofproto_parser
 
 		# Intall the table-miss flow entry
@@ -58,6 +65,7 @@ class SDNController(app_manager.RyuApp):
 			ofproto.OFPP_CONTROLLER,
 			ofproto.OFPCML_NO_BUFFER
 		)]
+		# Add a flow (which is basically a default action for a known packet)
 		self.add_flow(datapath, 0, match, actions)
 
 	def add_flow(self, datapath, priority, match, actions):
@@ -75,32 +83,41 @@ class SDNController(app_manager.RyuApp):
 			match = match,
 			instructions = inst
 		)
-
+		# Send the message that acknowledges the flow in the switch
 		datapath.send_msg(mod)
 
+	# Setting the packet-in event function to be called
 	@set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
 	def handler_packet_in(self, ev):
+		# Getting the different message structures inside the packet
 		msg = ev.msg
 		pkt = packet.Packet(msg.data)
 		eth_pkt = pkt.get_protocol(ethernet.ethernet)
 
+		# Here we use the ethernet type that indicates the protocol of
+		# the packet to actually filter the transmission, giving
+		# priority to LLDP and ARP packets
 		ethtype = eth_pkt.ethertype
 		if ethtype == 0x88CC or ethtype == 0x806:	# Link-layer discovery protocol (LLDP) and ARP
 			self.send_message(msg, False)
-		elif ethtype == 0x800:
+		elif ethtype == 0x800:						# IPv4 packets
 			print("IPv4")
 			self.queue.append(msg)
 		else:
 			self.queue.append(msg)
 
+	# Packets that consume tokens to be sent
 	def send_packet_if_token(self):
-		if self.queue:
-			first_in = self.queue.pop(0)
+		if self.queue: # If there are packets in the FIFO
+			first_in = self.queue.pop(0) # Get the first packet in the FIFO
 			pkt = packet.Packet(first_in.data)
 
+			# If there are enough tokens, send the packet
+			# Otherwise, it is discarded
 			if self.tokenBucket(sys.getsizeof(pkt)):
 				self.send_message(first_in)
 
+	# Sending the packet that has priority
 	def send_message(self, msg, debug = True):
 		datapath = msg.datapath
 		ofproto = datapath.ofproto
@@ -133,6 +150,7 @@ class SDNController(app_manager.RyuApp):
 			self.net.add_edge(src, dpid)	# add a link from the node to the switch
 			self.net.add_edge(dpid, src, {'port':in_port})	# add a link from switch to node
 
+		# Find the shortest path for the destiny
 		if dst in self.net:
 			path = nx.shortest_path(self.net, src, dst)
 			if debug: print("\tPath: " + str(path))
@@ -159,20 +177,22 @@ class SDNController(app_manager.RyuApp):
 		)
 		datapath.send_msg(out)
 
+	# Function that checks if there are enough tokens to send the packet
 	def tokenBucket(self, tokens):
 		consumed = False
 		if  self.i >= tokens:
 			self.i = self.i - tokens
 			consumed = True
-			#self.logger.info("Consumed %s tokens, %s tokens available", tokens, self.i)
+			self.logger.info("Consumed %s tokens, %s tokens available", tokens, self.i)
 		return consumed
 
+	# Part of the main loop, creates tokens until the maximum value is achieved
 	def createToken(self):
 		if self.i < self.maxTokens:
 			self.i = self.i + self.tokenSize
-			#self.logger.info("Generated %s tokens, %s tokens available", self.tokenSize, self.i)
-		#else:
-			#self.logger.info("Maximum token values")
+			self.logger.info("Generated %s tokens, %s tokens available", self.tokenSize, self.i)
+		else:
+			self.logger.info("Maximum token values")
 
 ### https://github.com/Ehsan70/RyuApps/blob/master/TopoDiscoveryInRyu.md
 ### https://sdn-lab.com/2014/12/25/shortest-path-forwarding-with-openflow-on-ryu/
