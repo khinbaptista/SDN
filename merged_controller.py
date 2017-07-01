@@ -194,8 +194,6 @@ class SDNController(app_manager.RyuApp):
 		else:
 			self.logger.info("Maximum token values")
 
-### https://github.com/Ehsan70/RyuApps/blob/master/TopoDiscoveryInRyu.md
-### https://sdn-lab.com/2014/12/25/shortest-path-forwarding-with-openflow-on-ryu/
 	# Topology discovery
 	@set_ev_cls(event.EventSwitchEnter)
 	def handler_switch_enter(self, ev):
